@@ -1,0 +1,1 @@
+A multi-scale edge detection depth illusion overlay using both a 3x3 and 5x5 kernel, which enhances depth estimation. It incorporates luminance, texture, perspective bias, and focus adjustments. The method of combining multi-scale edges with power transformations helps to accentuate depth features
