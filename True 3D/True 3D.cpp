@@ -29,7 +29,7 @@ const int FRAME_DELAY = 1000 / TARGET_FPS;
 // Advanced configuration with more parameters
 struct DepthIllusionConfig {
     // Basic settings
-    float depth_intensity = 3.0f;      // Overall depth effect strength
+    float depth_intensity = 40.0f;      // Overall depth effect strength
     float edge_boost = 6.0f;           // Edge detection multiplier
     float base_shift = 10.0f;          // Base pixel displacement amount
     float perspective_strength = 1.5f;  // Perspective effect (stronger at screen bottom)
@@ -51,7 +51,7 @@ struct DepthIllusionConfig {
     float wave_amplitude = 1.2f;       // Amplitude of wave effect
     float wave_frequency = 0.003f;     // Frequency of wave pattern
     bool temporal_smoothing = true;    // Enable temporal smoothing
-    int history_frames = 3;            // Number of frames to use for temporal smoothing
+    int history_frames = 60;            // Number of frames to use for temporal smoothing
 } dcfg;
 
 template <typename T>
