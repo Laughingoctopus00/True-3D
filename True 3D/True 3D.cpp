@@ -16,6 +16,9 @@
 #include <thread>
 #include <mutex>
 #include <deque>
+#include <fstream>
+#include <string>
+#include <iostream>
 
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "user32.lib")
@@ -29,34 +32,95 @@ const int FRAME_DELAY = 1000 / TARGET_FPS;
 // Advanced configuration with more parameters
 struct DepthIllusionConfig {
     // Basic settings
-    float depth_intensity = 40.0f;      // Overall depth effect strength
-    float edge_boost = 6.0f;           // Edge detection multiplier
-    float base_shift = 10.0f;          // Base pixel displacement amount
-    float perspective_strength = 1.5f;  // Perspective effect (stronger at screen bottom)
+    float depth_intensity = 250.0f;      // Overall depth effect strength
+    float edge_boost = 10.0f;           // Edge detection multiplier
+    float base_shift = 20.0f;          // Base pixel displacement amount
+    float perspective_strength = 4.5f;  // Perspective effect (stronger at screen bottom)
     float phase = 0.0f;                // Current animation phase
-    float phase_speed = 0.15f;         // Animation speed
-    BYTE alpha = 180;                  // Global overlay transparency
+    float phase_speed = 0.1f;         // Animation speed
+    BYTE alpha = 245;                  // Global overlay transparency
 
     // Enhanced settings
-    float vertical_shift = 3.0f;       // Vertical displacement amount
-    float color_intensity = 1.2f;      // Color separation intensity
-    float blur_radius = 1.5f;          // Depth-based blur amount
-    float luminance_influence = 0.4f;  // How much brightness affects depth
-    float texture_influence = 0.6f;    // How much texture detail affects depth
-    float motion_factor = 0.8f;        // Motion detection influence
+    float vertical_shift = 0.2f;       // Vertical displacement amount
+    float color_intensity = 0.3f;      // Color separation intensity
+    float blur_radius = 2.5f;          // Depth-based blur amount
+    float luminance_influence = 1.4f;  // How much brightness affects depth
+    float texture_influence = 10.6f;    // How much texture detail affects depth
+    float motion_factor = 8.8f;        // Motion detection influence
     float focus_distance = 0.5f;       // Normalized distance (0-1) for focus plane
-    float focus_range = 0.3f;          // Range around focus distance that appears sharp
+    float focus_range = 0.6f;          // Range around focus distance that appears sharp
 
     // Dynamic animation
-    float wave_amplitude = 1.2f;       // Amplitude of wave effect
-    float wave_frequency = 0.003f;     // Frequency of wave pattern
+    float wave_amplitude = 0.1f;       // Amplitude of wave effect
+    float wave_frequency = 0.001f;     // Frequency of wave pattern
     bool temporal_smoothing = true;    // Enable temporal smoothing
-    int history_frames = 60;            // Number of frames to use for temporal smoothing
+    int history_frames = 60;           // Number of frames to use for temporal smoothing
+
+    // Iridescent effect settings
+    bool enable_iridescence = true;    // Toggle for iridescent effect
+    float iridescence_intensity = 7.7f;// Strength of iridescent effect
+    float iridescence_speed = 1.02f;   // How quickly colors cycle
+    float iridescence_scale = 0.1f;   // Scale of the iridescent pattern
+    float hue_range = 1.0f;            // Range of hues used (1.0 = full spectrum)
+    float hue_offset = 0.0f;           // Starting hue offset
 } dcfg;
 
 template <typename T>
 T clamp(T value, T minVal, T maxVal) {
     return std::max(minVal, std::min(value, maxVal));
+}
+
+// Convert HSV to RGB
+void HSVtoRGB(float h, float s, float v, float& r, float& g, float& b) {
+    if (s == 0.0f) {
+        r = g = b = v;
+        return;
+    }
+
+    h = fmod(h, 1.0f) * 6.0f;
+    int i = static_cast<int>(h);
+    float f = h - i;
+    float p = v * (1.0f - s);
+    float q = v * (1.0f - s * f);
+    float t = v * (1.0f - s * (1.0f - f));
+
+    switch (i) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    default: r = v; g = p; b = q; break;
+    }
+}
+
+// Apply iridescent effect to a color
+void ApplyIridescence(int x, int y, float depth, float time, BYTE& r, BYTE& g, BYTE& b) {
+    // Base hue derived from position and depth
+    float hue = fmod(
+        dcfg.hue_offset +
+        x * dcfg.iridescence_scale +
+        y * dcfg.iridescence_scale * 0.7f +
+        depth * 0.3f +
+        time * dcfg.iridescence_speed,
+        1.0f
+    ) * dcfg.hue_range;
+
+    // Convert original RGB to floats
+    float origR = r / 255.0f;
+    float origG = g / 255.0f;
+    float origB = b / 255.0f;
+
+    // Generate iridescent color
+    float iriR, iriG, iriB;
+    HSVtoRGB(hue, 0.9f, 0.9f, iriR, iriG, iriB);
+
+    // Blend with original color based on depth and intensity
+    float blendFactor = depth * dcfg.iridescence_intensity;
+
+    r = static_cast<BYTE>(clamp((origR * (1.0f - blendFactor) + iriR * blendFactor) * 255.0f, 0.0f, 255.0f));
+    g = static_cast<BYTE>(clamp((origG * (1.0f - blendFactor) + iriG * blendFactor) * 255.0f, 0.0f, 255.0f));
+    b = static_cast<BYTE>(clamp((origB * (1.0f - blendFactor) + iriB * blendFactor) * 255.0f, 0.0f, 255.0f));
 }
 
 // Smart pointer deleters for Windows GDI resources
@@ -331,6 +395,14 @@ UniqueBitmap CreateEnhancedDepthOverlay(HDC hdc, AdvancedDepthGenerator& depthGe
             pixels[offset + 1] = pixels[srcOffset + 1]; // Green stays at source position
             pixels[offset + 0] = static_cast<BYTE>(clamp(pixels[blueOffset + 0] * (1.0f + colorSep * 0.3f), 0.0f, 255.0f)); // Blue
 
+            // Apply iridescent effect
+            if (dcfg.enable_iridescence) {
+                ApplyIridescence(x, y, depth, time,
+                    pixels[offset + 2],  // Red
+                    pixels[offset + 1],  // Green
+                    pixels[offset + 0]); // Blue
+            }
+
             // Depth-based transparency
             float depthAlpha = 0.3f + depth * 0.7f; // More transparent for areas with less depth
             pixels[offset + 3] = static_cast<BYTE>(dcfg.alpha * depthAlpha);
@@ -415,6 +487,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case 'X': dcfg.focus_distance = std::min(1.0f, dcfg.focus_distance + 0.05f); break;
         case 'C': dcfg.focus_range *= 0.9f; break;
         case 'V': dcfg.focus_range *= 1.1f; break;
+
+            // Iridescent effect controls
+        case 'I': dcfg.enable_iridescence = !dcfg.enable_iridescence; break;
+        case 'U': dcfg.iridescence_intensity = std::max(0.0f, dcfg.iridescence_intensity - 0.05f); break;
+        case 'Y': dcfg.iridescence_intensity = std::min(1.0f, dcfg.iridescence_intensity + 0.05f); break;
+        case 'H': dcfg.hue_range = std::max(0.1f, dcfg.hue_range - 0.1f); break;
+        case 'J': dcfg.hue_range = std::min(2.0f, dcfg.hue_range + 0.1f); break;
+        case 'N': dcfg.iridescence_scale *= 0.9f; break;
+        case 'M': dcfg.iridescence_scale *= 1.1f; break;
+        case 'K': dcfg.iridescence_speed *= 0.9f; break;
+        case 'L': dcfg.iridescence_speed *= 1.1f; break;
+        case VK_OEM_COMMA: dcfg.hue_offset = fmod(dcfg.hue_offset - 0.1f, 1.0f); break;  // <
+        case VK_OEM_PERIOD: dcfg.hue_offset = fmod(dcfg.hue_offset + 0.1f, 1.0f); break; // >
 
             // Toggle settings window
         case 'O':
@@ -522,13 +607,149 @@ int WINAPI WinMain(
     renderThread.detach();
 
     // Message loop
-    MSG msg;
+    MSG msg = { 0 };
     while (GetMessage(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
 
     // Cleanup
+    if (g_hwndSettings) {
+        DestroyWindow(g_hwndSettings);
+    }
+
+    // Shutdown GDI+
     Gdiplus::GdiplusShutdown(gdiplusToken);
-    return (int)msg.wParam;
+
+    return static_cast<int>(msg.wParam);
+}
+
+// Function to save configuration to file
+bool SaveConfigToFile(const std::string& filename, const DepthIllusionConfig& config) {
+    std::ofstream file(filename, std::ios::binary);
+    if (!file.is_open()) return false;
+
+    file.write(reinterpret_cast<const char*>(&config), sizeof(DepthIllusionConfig));
+    return file.good();
+}
+
+// Function to load configuration from file
+bool LoadConfigFromFile(const std::string& filename, DepthIllusionConfig& config) {
+    std::ifstream file(filename, std::ios::binary);
+    if (!file.is_open()) return false;
+
+    file.read(reinterpret_cast<char*>(&config), sizeof(DepthIllusionConfig));
+    return file.good();
+}
+
+// Function to create a preset with predefined settings
+DepthIllusionConfig CreatePreset(int presetId) {
+    DepthIllusionConfig preset = dcfg; // Start with current settings
+
+    switch (presetId) {
+    case 1: // Subtle effect
+        preset.depth_intensity = 20.0f;
+        preset.edge_boost = 3.0f;
+        preset.base_shift = 5.0f;
+        preset.perspective_strength = 1.0f;
+        preset.phase_speed = 0.08f;
+        preset.alpha = 150;
+        preset.color_intensity = 0.6f;
+        preset.wave_amplitude = 0.5f;
+        preset.iridescence_intensity = 0.3f;
+        break;
+
+    case 2: // Intense effect
+        preset.depth_intensity = 60.0f;
+        preset.edge_boost = 8.0f;
+        preset.base_shift = 15.0f;
+        preset.perspective_strength = 2.0f;
+        preset.phase_speed = 0.25f;
+        preset.alpha = 200;
+        preset.color_intensity = 1.8f;
+        preset.wave_amplitude = 1.8f;
+        preset.iridescence_intensity = 0.9f;
+        break;
+
+    case 3: // Psychedelic effect
+        preset.depth_intensity = 70.0f;
+        preset.edge_boost = 10.0f;
+        preset.base_shift = 20.0f;
+        preset.perspective_strength = 2.5f;
+        preset.phase_speed = 0.35f;
+        preset.alpha = 220;
+        preset.color_intensity = 2.5f;
+        preset.wave_amplitude = 2.5f;
+        preset.iridescence_intensity = 1.0f;
+        preset.hue_range = 2.0f;
+        preset.iridescence_speed = 0.25f;
+        break;
+
+    case 4: // Focus effect
+        preset.depth_intensity = 50.0f;
+        preset.edge_boost = 5.0f;
+        preset.base_shift = 12.0f;
+        preset.perspective_strength = 1.2f;
+        preset.phase_speed = 0.15f;
+        preset.alpha = 180;
+        preset.focus_distance = 0.5f;
+        preset.focus_range = 0.1f;
+        preset.blur_radius = 3.0f;
+        preset.color_intensity = 1.5f;
+        break;
+    }
+
+    return preset;
+}
+
+// Function to update the settings window based on current configuration
+void UpdateSettingsWindow() {
+    if (!g_hwndSettings || !IsWindowVisible(g_hwndSettings)) return;
+
+    // Update sliders and controls with current values from dcfg
+    // This would be implemented to update all UI control values
+    // based on the current configuration
+
+    // Example:
+    // SendMessage(g_hwndDepthSlider, TBM_SETPOS, TRUE, 
+    //     static_cast<LPARAM>(dcfg.depth_intensity));
+
+    // For a complete implementation, you would need to create
+    // and track all UI controls in the settings window
+}
+
+// Function to handle settings control events
+void HandleSettingsControl(HWND hwndControl, int controlId, int notificationCode) {
+    std::lock_guard<std::mutex> lock(g_configMutex);
+
+    // Example handler for a slider:
+    // if (controlId == ID_DEPTH_SLIDER && notificationCode == TB_THUMBTRACK) {
+    //     int pos = static_cast<int>(SendMessage(hwndControl, TBM_GETPOS, 0, 0));
+    //     dcfg.depth_intensity = static_cast<float>(pos);
+    // }
+
+    // Similar handlers would be implemented for all settings controls
+}
+
+// Function to display help/keyboard shortcuts
+void ShowHelpDialog(HWND hwndParent) {
+    MessageBox(hwndParent,
+        L"Keyboard Controls:\n"
+        L"ESC - Exit application\n"
+        L"O - Toggle settings window\n\n"
+        L"Arrow keys - Adjust base shift and animation speed\n"
+        L"W/S - Increase/decrease vertical shift\n"
+        L"A/D - Decrease/increase color intensity\n"
+        L"Q/E - Increase/decrease wave amplitude\n"
+        L"Z/X - Adjust focus distance\n"
+        L"C/V - Adjust focus range\n\n"
+        L"I - Toggle iridescence effect\n"
+        L"Y/U - Adjust iridescence intensity\n"
+        L"H/J - Adjust hue range\n"
+        L"N/M - Adjust iridescence scale\n"
+        L"K/L - Adjust iridescence speed\n"
+        L"</> - Adjust hue offset\n\n"
+        L"1-4 - Load presets",
+        L"3D Depth Illusion Help",
+        MB_OK | MB_ICONINFORMATION);
 }
